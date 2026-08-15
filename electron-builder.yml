@@ -1,0 +1,36 @@
+appId: com.vidgrab.app
+productName: VidGrab
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+extraResources:
+  # yt-dlp.exe / ffmpeg.exe dat vao resources/bin se duoc dong goi kem ban cai.
+  # Neu thu muc rong, app se tu tai ve lan chay dau tien.
+  - from: resources/bin
+    to: bin
+    filter:
+      - '**/*.exe'
+  # Icon cho tray, main process doc bang duong dan tuyet doi luc chay.
+  - from: build/icon.png
+    to: icon.png
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+# artifactName phai khai bao rieng cho tung target: neu dat chung o muc `win`,
+# ban portable se ghi de len ban cai dat vi trung ten file.
+portable:
+  artifactName: ${productName}-${version}-Portable.${ext}
+nsis:
+  artifactName: ${productName}-${version}-Setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: VidGrab
