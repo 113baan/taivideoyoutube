@@ -4,6 +4,7 @@ import { statSync } from 'fs'
 import type { Job, JobOptions, JobStatus } from '../shared/types'
 import { classifyError, simpleError } from './errors'
 import { addFromJob } from './history'
+import { sanitizeSegment } from './services/FilenameService'
 import { getSettings } from './settings'
 import { startDownload } from './ytdlp'
 
@@ -308,6 +309,20 @@ export function retryAllFailed(): void {
 
 export function cancelAll(): void {
   jobs.filter((j) => STOPPABLE.includes(j.status)).forEach((j) => cancel(j.id))
+}
+
+/**
+ * Tien to ten file cua cac job con song trong hang doi — TempManager dung
+ * danh sach nay de KHONG xoa file .part cua job dang tam dung hoac dang tai.
+ *
+ * Lay tien to ngan (40 ky tu) thay vi ca ten: khop rong hon nghia la bao ve
+ * nhieu hon, va sai lam ve phia giu lai thi vo hai, con xoa nham thi mat du lieu.
+ */
+export function getProtectedPrefixes(): string[] {
+  return jobs
+    .filter((j) => j.status !== 'done')
+    .map((j) => sanitizeSegment(j.title).slice(0, 40))
+    .filter((p) => p.length > 0)
 }
 
 /** Dung moi tien trinh khi thoat app, tranh de lai yt-dlp/ffmpeg chay ngam. */

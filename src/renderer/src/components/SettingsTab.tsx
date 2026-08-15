@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
+  Trash2,
   Video
 } from 'lucide-react'
 import type {
@@ -389,6 +390,8 @@ export default function SettingsTab(props: Props): JSX.Element {
             />
           </div>
 
+          <CleanupBlock onToast={props.onToast} />
+
           <div className="field">
             <label className="field-label">Đường dẫn FFmpeg tùy chọn</label>
             <div className="row">
@@ -442,6 +445,7 @@ function EngineSection({ binaries, onBinariesChange, onToast }: Props): JSX.Elem
 
   const yt = binaries?.ytdlp
   const ff = binaries?.ffmpeg
+  const fp = binaries?.ffprobe
 
   return (
     <>
@@ -502,6 +506,24 @@ function EngineSection({ binaries, onBinariesChange, onToast }: Props): JSX.Elem
         )}
       </div>
 
+      <div className="engine-card">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <span className={`dot ${fp?.ready ? 'on' : 'off'}`} />
+            <b>FFprobe</b>
+            <span className="faint" style={{ fontSize: 12.5 }}>
+              {fp?.ready ? `phiên bản ${fp.version}` : 'không tìm thấy'}
+            </span>
+            {fp?.bundled && <span className="badge">Kèm theo app</span>}
+          </div>
+          <div className="field-hint" style={{ wordBreak: 'break-all' }}>
+            {fp?.ready
+              ? fp.path
+              : 'Đi kèm FFmpeg. Thiếu FFprobe thì tính năng tải một đoạn video sẽ không dùng được.'}
+          </div>
+        </div>
+      </div>
+
       {progress && (
         <div className={`errbox ${progress.stage === 'error' ? '' : 'warn'}`} style={{ marginTop: 16 }}>
           <div className="errbox-body" style={{ marginTop: 0 }}>
@@ -532,6 +554,78 @@ function EngineSection({ binaries, onBinariesChange, onToast }: Props): JSX.Elem
         cài trên hệ thống. Dùng khi engine bị hỏng.
       </div>
     </>
+  )
+}
+
+/* ------------------------------ Don file rac ------------------------------ */
+
+function formatMB(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / 1048576).toFixed(1)} MB`
+}
+
+function CleanupBlock({ onToast }: { onToast: Props['onToast'] }): JSX.Element {
+  const [plan, setPlan] = useState<{ count: number; bytes: number; names: string[] } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const scan = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      setPlan(await window.api.previewTemp())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    void scan()
+  }, [])
+
+  return (
+    <div className="field" style={{ marginTop: 20 }}>
+      <label className="field-label">Dọn file tạm</label>
+      <div className="field-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+        Các lần tải bị hủy hoặc lỗi để lại file dang dở và ảnh bìa rời trong thư mục lưu. VidGrab
+        <b> không đụng tới</b> file của video đang tải hoặc đang tạm dừng, cũng không xóa video đã
+        hoàn tất, phụ đề, hay file mới ghi trong 10 phút gần đây.
+      </div>
+
+      <div className="row">
+        <button onClick={() => void scan()} disabled={busy}>
+          {busy ? <span className="spin" /> : <RefreshCw size={15} />} Quét lại
+        </button>
+        <button
+          className={plan && plan.count > 0 ? 'primary' : ''}
+          disabled={busy || !plan || plan.count === 0}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              const res = await window.api.cleanupTemp()
+              onToast(
+                'ok',
+                `Đã dọn ${res.removed} file`,
+                `Giải phóng ${formatMB(res.bytes)}${
+                  res.failed.length > 0 ? ` · ${res.failed.length} file đang bị khóa` : ''
+                }`
+              )
+              await scan()
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <Trash2 size={15} />
+          {plan && plan.count > 0 ? `Dọn ${plan.count} file · ${formatMB(plan.bytes)}` : 'Không có gì để dọn'}
+        </button>
+      </div>
+
+      {plan && plan.count > 0 && (
+        <div className="errbox-tech" style={{ marginTop: 10, maxHeight: 130 }}>
+          {plan.names.slice(0, 12).join('\n')}
+          {plan.names.length > 12 ? `\n… và ${plan.names.length - 12} file nữa` : ''}
+        </div>
+      )}
+    </div>
   )
 }
 

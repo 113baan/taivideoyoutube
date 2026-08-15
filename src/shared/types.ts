@@ -208,9 +208,30 @@ export interface Settings {
   ffmpegPath: string
 }
 
+export interface BinaryInfo {
+  path: string | null
+  version: string | null
+  ready: boolean
+  bundled: boolean
+}
+
 export interface BinaryStatus {
-  ytdlp: { path: string | null; version: string | null; ready: boolean; bundled: boolean }
-  ffmpeg: { path: string | null; version: string | null; ready: boolean; bundled: boolean }
+  ytdlp: BinaryInfo
+  ffmpeg: BinaryInfo
+  /** Bat buoc cho tinh nang cat doan — yt-dlp dung ffprobe de doc moc thoi gian. */
+  ffprobe: BinaryInfo
+}
+
+export interface TempPreview {
+  count: number
+  bytes: number
+  names: string[]
+}
+
+export interface CleanupResult {
+  removed: number
+  bytes: number
+  failed: string[]
 }
 
 export interface BinaryProgress {

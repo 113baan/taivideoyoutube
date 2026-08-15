@@ -12,6 +12,7 @@ import {
   updateYtdlp
 } from './binaries'
 import { clearHistory, getHistory, removeEntry, withExistence } from './history'
+import { cleanup as tempCleanup, preview as tempPreview } from './services/TempManager'
 import * as queue from './queue'
 import { getSettings, saveSettings } from './settings'
 import { probe, probeSingle } from './ytdlp'
@@ -242,6 +243,15 @@ ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//i.test(url)) return shell.openExternal(url)
   return null
 })
+
+ipcMain.handle('temp:preview', () => {
+  const plan = tempPreview(getSettings().outputDir, queue.getProtectedPrefixes())
+  return { count: plan.remove.length, bytes: plan.bytes, names: plan.remove.map((f) => f.name) }
+})
+
+ipcMain.handle('temp:cleanup', () =>
+  tempCleanup(getSettings().outputDir, queue.getProtectedPrefixes())
+)
 
 ipcMain.handle('engine:status', () => getBinaryStatus())
 ipcMain.handle('engine:openFolder', () => openEngineFolder())

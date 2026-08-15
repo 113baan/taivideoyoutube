@@ -12,8 +12,8 @@ import {
   unlinkSync
 } from 'fs'
 import { get as httpsGet } from 'https'
-import { join } from 'path'
-import type { BinaryProgress, BinaryStatus } from '../shared/types'
+import { dirname, join } from 'path'
+import type { BinaryInfo, BinaryProgress, BinaryStatus } from '../shared/types'
 import { getSettings } from './settings'
 
 const YTDLP_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
@@ -83,32 +83,58 @@ export async function resolveFfmpeg(): Promise<string | null> {
   return whichExe('ffmpeg.exe')
 }
 
+/**
+ * ffprobe thuong nam canh ffmpeg. Tim canh ffmpeg truoc roi moi den PATH,
+ * de khong lay nham ban ffprobe cua mot bo cai khac phien ban.
+ */
+export async function resolveFfprobe(): Promise<string | null> {
+  const ffmpeg = await resolveFfmpeg()
+  if (ffmpeg) {
+    const sibling = join(dirname(ffmpeg), 'ffprobe.exe')
+    if (existsSync(sibling)) return sibling
+  }
+  const bundled = join(bundledBinDir(), 'ffprobe.exe')
+  if (existsSync(bundled)) return bundled
+  const downloaded = join(userBinDir(), 'ffprobe.exe')
+  if (existsSync(downloaded)) return downloaded
+  return whichExe('ffprobe.exe')
+}
+
+/** Rut gon chuoi phien ban dai cua cac ban build FFmpeg. */
+function shortFfVersion(raw: string | null): string | null {
+  if (!raw) return null
+  return (
+    raw.match(/version n?(\d+\.\d+(?:\.\d+)?)/)?.[1] ??
+    raw.match(/version (\S{1,14})/)?.[1] ??
+    raw.slice(0, 14)
+  )
+}
+
 export async function getBinaryStatus(): Promise<BinaryStatus> {
-  const [ytdlp, ffmpeg] = await Promise.all([resolveYtdlp(), resolveFfmpeg()])
-  const [ytVer, ffVer] = await Promise.all([
+  const [ytdlp, ffmpeg, ffprobe] = await Promise.all([
+    resolveYtdlp(),
+    resolveFfmpeg(),
+    resolveFfprobe()
+  ])
+  const [ytVer, ffVer, fpVer] = await Promise.all([
     ytdlp ? runVersion(ytdlp, ['--version']) : Promise.resolve(null),
-    ffmpeg ? runVersion(ffmpeg, ['-version']) : Promise.resolve(null)
+    ffmpeg ? runVersion(ffmpeg, ['-version']) : Promise.resolve(null),
+    ffprobe ? runVersion(ffprobe, ['-version']) : Promise.resolve(null)
   ])
   const bundledDir = bundledBinDir()
+  const info = (path: string | null, version: string | null): BinaryInfo => ({
+    path,
+    version,
+    ready: Boolean(path && version),
+    bundled: Boolean(path?.startsWith(bundledDir))
+  })
+
   return {
-    ytdlp: {
-      path: ytdlp,
-      version: ytVer,
-      ready: Boolean(ytdlp && ytVer),
-      bundled: Boolean(ytdlp?.startsWith(bundledDir))
-    },
-    ffmpeg: {
-      path: ffmpeg,
-      // Dong dau co dang "ffmpeg version 8.1-full_build-www.gyan.dev ...".
-      // Chi giu phan so, hau to cua nha dung ban qua dai lam vo layout sidebar.
-      version: ffVer
-        ? (ffVer.match(/ffmpeg version n?(\d+\.\d+(?:\.\d+)?)/)?.[1] ??
-           ffVer.match(/ffmpeg version (\S{1,12})/)?.[1] ??
-           ffVer.slice(0, 12))
-        : null,
-      ready: Boolean(ffmpeg && ffVer),
-      bundled: Boolean(ffmpeg?.startsWith(bundledDir))
-    }
+    ytdlp: info(ytdlp, ytVer),
+    // Dong dau co dang "ffmpeg version 8.1-full_build-www.gyan.dev ..." —
+    // hau to cua nha dung ban qua dai se lam vo layout sidebar.
+    ffmpeg: info(ffmpeg, shortFfVersion(ffVer)),
+    ffprobe: info(ffprobe, shortFfVersion(fpVer))
   }
 }
 

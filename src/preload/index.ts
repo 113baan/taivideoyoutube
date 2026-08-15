@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   BinaryProgress,
   BinaryStatus,
+  CleanupResult,
+  TempPreview,
   HistoryEntry,
   Job,
   JobOptions,
@@ -74,6 +76,10 @@ const api = {
   openFile: (path: string): Promise<string> => ipcRenderer.invoke('shell:openFile', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+
+  /* Don file rac */
+  previewTemp: (): Promise<TempPreview> => ipcRenderer.invoke('temp:preview'),
+  cleanupTemp: (): Promise<CleanupResult> => ipcRenderer.invoke('temp:cleanup'),
 
   /* Engine */
   getEngineStatus: (): Promise<BinaryStatus> => ipcRenderer.invoke('engine:status'),
