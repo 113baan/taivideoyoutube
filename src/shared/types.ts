@@ -90,8 +90,27 @@ export interface FriendlyError {
   technical: string
 }
 
+export interface TimeRange {
+  /** Giay tinh tu dau video. */
+  start: number
+  /** Giay; null nghia la tai den het video. */
+  end: number | null
+  /**
+   * Cat chinh xac hon bang cach ma hoa lai quanh diem cat. Cham hon nhieu
+   * va giam chat luong doi chut, nen mac dinh tat.
+   */
+  accurate: boolean
+}
+
 export interface JobOptions {
   preset: QualityPreset
+  /** null = tai toan bo video. */
+  timeRange?: TimeRange | null
+  /**
+   * Bo qua `--download-sections`, tai tron roi cat bang ffmpeg tren may.
+   * Duoc bat tu dong khi cach cat phia may chu that bai.
+   */
+  localCut?: boolean
   /** Chi dung khi preset === 'custom'. */
   videoFormatId?: string
   audioFormatId?: string

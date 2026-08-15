@@ -223,7 +223,8 @@ export default function App(): JSX.Element {
             <span className="header-sub">{activeCount} đang hoạt động</span>
           )}
           <div className="spacer" />
-          {!engineReady && (
+          {/* Chi bao thieu engine khi da do tim xong, tranh nhap nhay luc khoi dong. */}
+          {binaries !== null && !engineReady && (
             <button className="sm" onClick={() => openSettings('engine')}>
               <Wrench size={14} /> Cài đặt engine
             </button>
@@ -245,6 +246,7 @@ export default function App(): JSX.Element {
             <DownloadTab
               settings={settings}
               engineReady={engineReady}
+              engineChecking={binaries === null}
               focusSignal={focusSignal}
               onToast={toast}
               onGoToQueue={() => setTab('queue')}

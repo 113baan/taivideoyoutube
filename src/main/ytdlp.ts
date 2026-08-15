@@ -1,16 +1,18 @@
 import { ChildProcess, spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, renameSync, statSync, unlinkSync } from 'fs'
 import type {
   FormatRow,
   FriendlyError,
   JobOptions,
   MediaInfo,
-  ProbeResult
+  ProbeResult,
+  TimeRange
 } from '../shared/types'
 import { resolveFfmpeg, resolveYtdlp } from './binaries'
 import { classifyError, simpleError } from './errors'
-import { safeTemplate } from './services/FilenameService'
+import { insertRangeSuffix, safeTemplate } from './services/FilenameService'
 import { formatSelector } from './services/FormatService'
+import { rangeFilenameSuffix, toDownloadSection } from './services/TimeRangeService'
 import { ensureOutputDir, getSettings } from './settings'
 
 /** Tien to danh dau dong tien trinh, de tach khoi log thuong cua yt-dlp. */
@@ -198,6 +200,89 @@ export async function probeSingle(url: string): Promise<MediaInfo | null> {
   }
 }
 
+/**
+ * Nhan dien loi dac trung cua cach cat phia may chu, de biet khi nao nen
+ * chuyen sang tai tron roi cat tren may.
+ *
+ * Truong hop da gap that: YouTube tra URL media rang buoc voi client da yeu
+ * cau no; `--download-sections` giao viec tai cho ffmpeg, ffmpeg goi lai URL
+ * do ma khong kem dung header nen bi tra ve 403.
+ */
+export function isSectionDownloadFailure(stderr: string): boolean {
+  const text = stderr.toLowerCase()
+  return (
+    text.includes('ffmpeg exited with code') ||
+    (text.includes('403') && text.includes('ffmpeg')) ||
+    text.includes('error opening input') ||
+    text.includes('unable to obtain file audio codec with ffprobe')
+  )
+}
+
+export interface CutResult {
+  path: string
+  /** true khi file goc da bi thay the bang doan da cat. */
+  replaced: boolean
+}
+
+/**
+ * Cat mot doan tu file da tai ve, bang ffmpeg tren may.
+ *
+ * Mac dinh sao chep luong (`-c copy`): gan nhu tuc thi va khong giam chat
+ * luong, nhung diem cat bi keo ve keyframe gan nhat. Che do `accurate` ma hoa
+ * lai nen cat dung hon, doi lai cham hon nhieu.
+ */
+export async function cutLocally(
+  input: string,
+  range: TimeRange,
+  onStage: (stage: string) => void
+): Promise<CutResult> {
+  const ffmpeg = await resolveFfmpeg()
+  if (!ffmpeg) throw new Error('FFMPEG_MISSING')
+  if (!existsSync(input)) throw new Error(`Không tìm thấy file để cắt: ${input}`)
+
+  const dot = input.lastIndexOf('.')
+  const ext = dot > 0 ? input.slice(dot) : '.mp4'
+  const base = dot > 0 ? input.slice(0, dot) : input
+  const output = `${base}.cut${ext}`
+
+  const args = ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(range.start)]
+  if (range.end !== null) args.push('-to', String(range.end))
+  args.push('-i', input)
+  if (range.accurate) {
+    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'aac', '-b:a', '192k')
+  } else {
+    args.push('-c', 'copy')
+  }
+  args.push('-avoid_negative_ts', 'make_zero', output)
+
+  onStage(range.accurate ? 'Đang cắt đoạn (mã hóa lại)' : 'Đang cắt đoạn')
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(ffmpeg, args, { windowsHide: true })
+    let err = ''
+    child.stderr.on('data', (d) => (err += d.toString()))
+    child.on('error', reject)
+    child.on('close', (code) =>
+      code === 0 ? resolve() : reject(new Error(err.trim() || `ffmpeg thoát với mã ${code}`))
+    )
+  })
+
+  if (!existsSync(output) || statSync(output).size === 0) {
+    throw new Error('Cắt đoạn không tạo ra file hợp lệ')
+  }
+
+  // Chi xoa ban day du SAU KHI doan cat da chac chan hop le — nguoi dung yeu
+  // cau mot doan, giu lai ban day du hang GB se la bat ngo khong mong muon.
+  try {
+    unlinkSync(input)
+    renameSync(output, input)
+    return { path: input, replaced: true }
+  } catch {
+    // Khong thay the duoc thi van tra ve doan da cat, khong lam mat du lieu.
+    return { path: output, replaced: false }
+  }
+}
+
 export interface DownloadHandle {
   child: ChildProcess
   promise: Promise<string | null>
@@ -241,11 +326,22 @@ export async function startDownload(
   const audioOnly = isAudioPreset(opts)
   const sidecar = isSidecarPreset(opts)
 
+  // Tai mot doan thi ghi ro khoang thoi gian vao ten file, tranh nhap voi
+  // ban day du cua cung video nam cung thu muc.
+  const range = opts.timeRange ?? null
+  let template = safeTemplate(s.filenameTemplate)
+  if (range) {
+    template = insertRangeSuffix(
+      template,
+      rangeFilenameSuffix(range.start, range.end ?? range.start)
+    )
+  }
+
   const args = [
     ...baseArgs(),
     ...formatSelector(opts),
     '-o',
-    `${outDir}\\${safeTemplate(s.filenameTemplate)}`,
+    `${outDir}\\${template}`,
     '--newline',
     '--no-playlist',
     '--no-simulate',
@@ -263,6 +359,17 @@ export async function startDownload(
 
   if (ffmpeg) args.push('--ffmpeg-location', ffmpeg)
   if (s.rateLimit) args.push('--limit-rate', s.rateLimit)
+
+  // Cat phia may chu: re bang thong nhat vi chi tai dung doan can.
+  // Khong dung duoc khi opts.localCut bat — luc do tai tron roi cat tren may.
+  if (range && !opts.localCut && !sidecar) {
+    args.push('--download-sections', toDownloadSection(range.start, range.end))
+    if (range.accurate) args.push('--force-keyframes-at-cuts')
+    // Tai theo doan di qua ffmpeg; nhieu manh song song khong ap dung va
+    // co the gay tranh chap, nen ep ve mot luong.
+    const idx = args.indexOf('--concurrent-fragments')
+    if (idx !== -1) args[idx + 1] = '1'
+  }
 
   if (!audioOnly && !sidecar) {
     args.push('--merge-output-format', opts.container)

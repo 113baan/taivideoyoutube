@@ -87,8 +87,10 @@ export async function resolveFfmpeg(): Promise<string | null> {
  * ffprobe thuong nam canh ffmpeg. Tim canh ffmpeg truoc roi moi den PATH,
  * de khong lay nham ban ffprobe cua mot bo cai khac phien ban.
  */
-export async function resolveFfprobe(): Promise<string | null> {
-  const ffmpeg = await resolveFfmpeg()
+export async function resolveFfprobe(known?: string | null): Promise<string | null> {
+  // Nhan san duong dan ffmpeg de khong phai do tim lai — do tim lai khien ba
+  // buoc nhan dien engine chay noi tiep, lam man hinh dau tien cham han len.
+  const ffmpeg = known !== undefined ? known : await resolveFfmpeg()
   if (ffmpeg) {
     const sibling = join(dirname(ffmpeg), 'ffprobe.exe')
     if (existsSync(sibling)) return sibling
@@ -111,11 +113,8 @@ function shortFfVersion(raw: string | null): string | null {
 }
 
 export async function getBinaryStatus(): Promise<BinaryStatus> {
-  const [ytdlp, ffmpeg, ffprobe] = await Promise.all([
-    resolveYtdlp(),
-    resolveFfmpeg(),
-    resolveFfprobe()
-  ])
+  const [ytdlp, ffmpeg] = await Promise.all([resolveYtdlp(), resolveFfmpeg()])
+  const ffprobe = await resolveFfprobe(ffmpeg)
   const [ytVer, ffVer, fpVer] = await Promise.all([
     ytdlp ? runVersion(ytdlp, ['--version']) : Promise.resolve(null),
     ffmpeg ? runVersion(ffmpeg, ['-version']) : Promise.resolve(null),

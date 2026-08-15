@@ -6,7 +6,7 @@ import { classifyError, simpleError } from './errors'
 import { addFromJob } from './history'
 import { sanitizeSegment } from './services/FilenameService'
 import { getSettings } from './settings'
-import { startDownload } from './ytdlp'
+import { cutLocally, isSectionDownloadFailure, startDownload } from './ytdlp'
 
 export interface NewJob {
   url: string
@@ -145,8 +145,17 @@ async function run(job: Job): Promise<void> {
       return
     }
 
-    const file = await handle.promise
+    let file = await handle.promise
     running.delete(job.id)
+
+    // Duong di du phong: da tai tron ca video, gio cat doan bang ffmpeg.
+    const range = job.options.timeRange
+    if (file && range && job.options.localCut) {
+      const result = await cutLocally(file, range, (stage) =>
+        update(job.id, { status: 'processing', stage, speed: null, eta: null })
+      )
+      file = result.path
+    }
 
     let size: number | null = null
     if (file) {
@@ -191,6 +200,24 @@ async function run(job: Job): Promise<void> {
           'VidGrab cần yt-dlp để tải video.',
           'Mở Cài đặt > Engine và bấm Cài đặt engine.'
         )
+      })
+    } else if (
+      job.options.timeRange &&
+      !job.options.localCut &&
+      isSectionDownloadFailure(message)
+    ) {
+      // Cat phia may chu that bai (vd YouTube tra URL rang buoc client, ffmpeg
+      // goi lai bi 403). Tai tron roi cat tren may — ton bang thong hon nhung
+      // chay duoc. Chi thu lai DUNG MOT LAN, tranh vong lap vo tan.
+      job.options.localCut = true
+      update(job.id, {
+        status: 'queued',
+        percent: 0,
+        downloadedBytes: 0,
+        totalBytes: null,
+        speed: null,
+        eta: null,
+        stage: 'Chuyển sang tải trọn rồi cắt trên máy'
       })
     } else {
       update(job.id, {

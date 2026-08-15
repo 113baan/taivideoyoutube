@@ -32,9 +32,11 @@ import {
   platformColor,
   platformName
 } from '../utils'
+import { formatClock } from '../../../main/services/TimeRangeService'
 import ErrorPanel from './ErrorPanel'
 import FormatTable from './FormatTable'
 import QualityPicker from './QualityPicker'
+import TimeRangeSelector, { readRange } from './TimeRangeSelector'
 
 /** Dung khi muc playlist chua co danh sach format de suy ra chi tiet. */
 const GENERIC_OPTIONS: QualityOption[] = [
@@ -68,6 +70,8 @@ interface Entry extends MediaInfo {
 interface Props {
   settings: Settings
   engineReady: boolean
+  /** Dang do tim engine — chua biet ket qua nen chua duoc bao la thieu. */
+  engineChecking: boolean
   focusSignal: number
   onToast: (kind: 'ok' | 'err' | 'info', title: string, message?: string) => void
   onGoToQueue: () => void
@@ -77,6 +81,7 @@ interface Props {
 export default function DownloadTab({
   settings,
   engineReady,
+  engineChecking,
   focusSignal,
   onToast,
   onGoToQueue,
@@ -91,6 +96,10 @@ export default function DownloadTab({
   const [advanced, setAdvanced] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [writeSubs, setWriteSubs] = useState(settings.writeSubs)
+  const [rangeOn, setRangeOn] = useState(false)
+  const [startText, setStartText] = useState('00:00:00')
+  const [endText, setEndText] = useState('')
+  const [accurate, setAccurate] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   const urls = useMemo(() => parseUrls(text), [text])
@@ -148,10 +157,19 @@ export default function DownloadTab({
 
   const activeOption = options.find((o) => o.key === qualityKey) ?? options[0]
 
+  // Khoang thoi gian chi ap dung khi tai mot video: voi playlist, moi video co
+  // thoi luong khac nhau nen ap dung chung mot khoang la sai (muc 89).
+  const rangeResult = useMemo(
+    () => readRange(startText, endText, accurate, single?.duration ?? null),
+    [startText, endText, accurate, single]
+  )
+  const rangeActive = rangeOn && Boolean(single)
+
   const buildOptions = useCallback(
     (entry: Entry): JobOptions => {
       const custom = Boolean(entry.videoFormatId || entry.audioFormatId)
       return {
+        timeRange: rangeActive ? rangeResult.range : null,
         preset: custom ? ('custom' as QualityPreset) : ((activeOption?.key ?? 'best') as QualityPreset),
         videoFormatId: entry.videoFormatId ?? undefined,
         audioFormatId: entry.audioFormatId ?? undefined,
@@ -168,7 +186,7 @@ export default function DownloadTab({
         embedMetadata: settings.embedMetadata
       }
     },
-    [activeOption, settings, writeSubs]
+    [activeOption, settings, writeSubs, rangeActive, rangeResult]
   )
 
   const send = useCallback(
@@ -255,7 +273,7 @@ export default function DownloadTab({
 
   return (
     <div className="content-inner">
-      {!engineReady && (
+      {!engineReady && !engineChecking && (
         <div className="errbox warn" style={{ marginBottom: 20 }}>
           <div className="errbox-title">Chưa sẵn sàng</div>
           <div className="errbox-body">
@@ -291,7 +309,7 @@ export default function DownloadTab({
           <button
             className="primary"
             onClick={() => void analyze()}
-            disabled={busy || !engineReady || urls.length === 0}
+            disabled={busy || (!engineReady && !engineChecking) || urls.length === 0}
           >
             {busy ? <span className="spin" /> : <Search size={15} />}
             {busy ? 'Đang phân tích...' : 'Phân tích'}
@@ -436,6 +454,34 @@ export default function DownloadTab({
                   onPick={(kind, id) =>
                     patch(single.key, kind === 'video' ? { videoFormatId: id } : { audioFormatId: id })
                   }
+                />
+              </div>
+            )}
+
+            {single && (
+              <div style={{ marginTop: 18 }}>
+                <div className="section-head">
+                  <span className="section-title">Phạm vi tải</span>
+                  <div className="section-rule" />
+                </div>
+                <TimeRangeSelector
+                  duration={single.duration}
+                  enabled={rangeOn}
+                  startText={startText}
+                  endText={endText}
+                  accurate={accurate}
+                  onToggle={(on) => {
+                    setRangeOn(on)
+                    // Lan dau bat: dat san moc ket thuc bang het video cho de sua.
+                    if (on && !endText && single.duration !== null) {
+                      setEndText(formatClock(single.duration))
+                    }
+                  }}
+                  onChange={(patch) => {
+                    if (patch.startText !== undefined) setStartText(patch.startText)
+                    if (patch.endText !== undefined) setEndText(patch.endText)
+                    if (patch.accurate !== undefined) setAccurate(patch.accurate)
+                  }}
                 />
               </div>
             )}
